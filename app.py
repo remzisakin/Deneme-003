@@ -444,15 +444,9 @@ def _is_streamlit_context_active() -> bool:
         return False
 
 
-if _is_streamlit_context_active():
-    main()
-elif __name__ == "__main__":
+def _launch_via_streamlit_cli() -> None:
     try:
-        from streamlit.web import bootstrap
-
-        script_path = Path(__file__).resolve()
-        command_line = f"{script_path} {' '.join(sys.argv[1:])}".strip()
-        bootstrap.run(str(script_path), command_line, sys.argv[1:])
+        from streamlit.web import cli as stcli
     except Exception as exc:
         message = (
             "Streamlit uygulaması doğrudan Python ile başlatılamadı. "
@@ -460,3 +454,14 @@ elif __name__ == "__main__":
             f"Ayrıntılar: {exc}"
         )
         sys.stderr.write(message + "\n")
+        raise SystemExit(1)
+
+    script_path = Path(__file__).resolve()
+    sys.argv = ["streamlit", "run", str(script_path), *sys.argv[1:]]
+    stcli.main()
+
+
+if _is_streamlit_context_active():
+    main()
+elif __name__ == "__main__":
+    _launch_via_streamlit_cli()
