@@ -3,9 +3,11 @@
 # export OPENAI_API_KEY=...
 import io
 import os
+import sys
 import json
 import textwrap
 import base64
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
@@ -16,8 +18,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-st.set_page_config(page_title="Veri Analiz Asistanı", layout="wide")
-
 CUSTOM_CSS = """
 <style>
     .main {background-color: #f9fafc;}
@@ -27,8 +27,6 @@ CUSTOM_CSS = """
     .download-links a {margin-right: 1rem; color: #1f77b4; font-weight: 600;}
 </style>
 """
-
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -293,140 +291,172 @@ def apply_filters(df: pd.DataFrame, schema: Dict[str, List[str]]) -> pd.DataFram
     return filtered_df
 
 
-# Başlık ve açıklamalar
-st.title("Veri Analiz Asistanı")
-st.markdown("Kendi verinizi yükleyerek otomatik özet, grafik önerileri ve LLM tabanlı analiz raporu alın.")
+def main() -> None:
+    st.set_page_config(page_title="Veri Analiz Asistanı", layout="wide")
 
-with st.expander("Nasıl Kullanılır?", expanded=True):
-    st.markdown(
-        """
-        1. CSV veya Excel formatında dosyanızı yükleyin (50-100 MB'a kadar destek).
-        2. Kodlama ve ayraç seçeneklerini gerektiğinde değiştirin.
-        3. Önerilen grafiği inceleyin veya farklı grafik türü seçin.
-        4. Filtreler ve dönüşümlerle veri alt kümelerini analiz edin.
-        5. LLM analiziyle kısa bir rapor üretin ve indirin.
-        """
-    )
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+    # Başlık ve açıklamalar
+    st.title("Veri Analiz Asistanı")
+    st.markdown("Kendi verinizi yükleyerek otomatik özet, grafik önerileri ve LLM tabanlı analiz raporu alın.")
 
-st.header("Dosya Yükleme")
-col_upload, col_options = st.columns([2, 1])
-with col_upload:
-    uploaded_file = st.file_uploader("Dosya yükleyin", type=["csv", "txt", "xls", "xlsx"], accept_multiple_files=False)
-with col_options:
-    encoding = st.text_input("Kodlama", value="utf-8")
-    sep = st.text_input("Ayraç (CSV için)", value=",")
-
-file_type = detect_file_type(uploaded_file)
-
-if uploaded_file:
-    try:
-        file_bytes = uploaded_file.getvalue()
-        data_frame = load_data(file_bytes, file_type, encoding=encoding, sep=sep)
-        st.success(f"Dosya başarıyla yüklendi: {uploaded_file.name}")
-    except UnicodeDecodeError:
-        st.error("Kodlama hatası. Lütfen doğru kodlamayı seçin (örn. UTF-8, ISO-8859-9).")
-        data_frame = None
-    except ValueError as exc:
-        st.error(str(exc))
-        data_frame = None
-    except Exception as exc:
-        st.error(f"Dosya okunamadı: {exc}")
-        data_frame = None
-else:
-    data_frame = None
-
-if data_frame is not None:
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    st.header("Veri Özeti")
-    schema = infer_schema(data_frame)
-    summary_text = summarize_dataframe(data_frame, schema)
-    st.text(summary_text)
-
-    missing, stats = profile_data(data_frame)
-    st.subheader("Eksik Değer Yüzdeleri")
-    st.dataframe(missing.style.format({"Eksik Oranı": "{:.2%}"}))
-
-    st.subheader("Temel İstatistikler")
-    st.dataframe(stats.head(50))
-
-    st.subheader("Örnek Satırlar (ilk 100)")
-    st.dataframe(data_frame.head(100))
+    with st.expander("Nasıl Kullanılır?", expanded=True):
+        st.markdown(
+            """
+            1. CSV veya Excel formatında dosyanızı yükleyin (50-100 MB'a kadar destek).
+            2. Kodlama ve ayraç seçeneklerini gerektiğinde değiştirin.
+            3. Önerilen grafiği inceleyin veya farklı grafik türü seçin.
+            4. Filtreler ve dönüşümlerle veri alt kümelerini analiz edin.
+            5. LLM analiziyle kısa bir rapor üretin ve indirin.
+            """
+        )
 
     st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    st.header("Grafik Önerici & Çizici")
 
-    filtered_df = apply_filters(data_frame, schema)
+    st.header("Dosya Yükleme")
+    col_upload, col_options = st.columns([2, 1])
+    with col_upload:
+        uploaded_file = st.file_uploader("Dosya yükleyin", type=["csv", "txt", "xls", "xlsx"], accept_multiple_files=False)
+    with col_options:
+        encoding = st.text_input("Kodlama", value="utf-8")
+        sep = st.text_input("Ayraç (CSV için)", value=",")
 
-    suggestion, config, reason = suggest_charts(filtered_df, schema)
-    st.info(f"Önerilen grafik: {suggestion}. Gerekçe: {reason}")
+    file_type = detect_file_type(uploaded_file)
 
-    chart_type_options = ["line", "bar", "scatter", "hist", "box", "heatmap", "table"]
-    default_chart_index = chart_type_options.index(suggestion) if suggestion in chart_type_options else 0
-    chart_type = st.selectbox("Grafik Türü", options=chart_type_options, index=default_chart_index)
-
-    columns_list = filtered_df.columns.tolist()
-    options_with_none = ["(Yok)"] + columns_list
-
-    default_x = config.get("x") if config.get("x") in columns_list else "(Yok)"
-    default_y = config.get("y") if config.get("y") in columns_list else "(Yok)"
-    default_color = config.get("color") if config.get("color") in columns_list else "(Yok)"
-
-    col_x, col_y, col_color = st.columns(3)
-    with col_x:
-        x_axis = st.selectbox("X ekseni", options=options_with_none, index=options_with_none.index(default_x))
-    with col_y:
-        y_axis = st.selectbox("Y ekseni", options=options_with_none, index=options_with_none.index(default_y))
-    with col_color:
-        color_axis = st.selectbox("Renk/Kategori", options=options_with_none, index=options_with_none.index(default_color))
-
-    top_n = st.slider("Top N (kategorik özet)", min_value=5, max_value=50, value=10, step=1)
-
-    manual_config: Dict[str, str] = {}
-    if x_axis != "(Yok)":
-        manual_config["x"] = x_axis
-    if y_axis != "(Yok)":
-        manual_config["y"] = y_axis
-    if color_axis != "(Yok)":
-        manual_config["color"] = color_axis
-
-    final_config = {**config, **manual_config}
-
-    if chart_type == "table":
-        st.dataframe(filtered_df.head(100))
+    if uploaded_file:
+        try:
+            file_bytes = uploaded_file.getvalue()
+            data_frame = load_data(file_bytes, file_type, encoding=encoding, sep=sep)
+            st.success(f"Dosya başarıyla yüklendi: {uploaded_file.name}")
+        except UnicodeDecodeError:
+            st.error("Kodlama hatası. Lütfen doğru kodlamayı seçin (örn. UTF-8, ISO-8859-9).")
+            data_frame = None
+        except ValueError as exc:
+            st.error(str(exc))
+            data_frame = None
+        except Exception as exc:
+            st.error(f"Dosya okunamadı: {exc}")
+            data_frame = None
     else:
-        fig = prepare_plot(filtered_df, chart_type, final_config, top_n)
-        if fig is not None:
-            st.plotly_chart(fig, use_container_width=True)
-            try:
-                png_bytes = fig.to_image(format="png")
-            except Exception:
-                png_bytes = None
-            html_bytes = fig.to_html(full_html=False).encode("utf-8")
-            st.subheader("Grafik İndirme")
-            if png_bytes:
-                download_button("PNG olarak indir", png_bytes, "grafik.png", "image/png")
-            download_button("HTML olarak indir", html_bytes, "grafik.html", "text/html")
+        data_frame = None
+
+    if data_frame is not None:
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        st.header("Veri Özeti")
+        schema = infer_schema(data_frame)
+        summary_text = summarize_dataframe(data_frame, schema)
+        st.text(summary_text)
+
+        missing, stats = profile_data(data_frame)
+        st.subheader("Eksik Değer Yüzdeleri")
+        st.dataframe(missing.style.format({"Eksik Oranı": "{:.2%}"}))
+
+        st.subheader("Temel İstatistikler")
+        st.dataframe(stats.head(50))
+
+        st.subheader("Örnek Satırlar (ilk 100)")
+        st.dataframe(data_frame.head(100))
+
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        st.header("Grafik Önerici & Çizici")
+
+        filtered_df = apply_filters(data_frame, schema)
+
+        suggestion, config, reason = suggest_charts(filtered_df, schema)
+        st.info(f"Önerilen grafik: {suggestion}. Gerekçe: {reason}")
+
+        chart_type_options = ["line", "bar", "scatter", "hist", "box", "heatmap", "table"]
+        default_chart_index = chart_type_options.index(suggestion) if suggestion in chart_type_options else 0
+        chart_type = st.selectbox("Grafik Türü", options=chart_type_options, index=default_chart_index)
+
+        columns_list = filtered_df.columns.tolist()
+        options_with_none = ["(Yok)"] + columns_list
+
+        default_x = config.get("x") if config.get("x") in columns_list else "(Yok)"
+        default_y = config.get("y") if config.get("y") in columns_list else "(Yok)"
+        default_color = config.get("color") if config.get("color") in columns_list else "(Yok)"
+
+        col_x, col_y, col_color = st.columns(3)
+        with col_x:
+            x_axis = st.selectbox("X ekseni", options=options_with_none, index=options_with_none.index(default_x))
+        with col_y:
+            y_axis = st.selectbox("Y ekseni", options=options_with_none, index=options_with_none.index(default_y))
+        with col_color:
+            color_axis = st.selectbox("Renk/Kategori", options=options_with_none, index=options_with_none.index(default_color))
+
+        top_n = st.slider("Top N (kategorik özet)", min_value=5, max_value=50, value=10, step=1)
+
+        manual_config: Dict[str, str] = {}
+        if x_axis != "(Yok)":
+            manual_config["x"] = x_axis
+        if y_axis != "(Yok)":
+            manual_config["y"] = y_axis
+        if color_axis != "(Yok)":
+            manual_config["color"] = color_axis
+
+        final_config = {**config, **manual_config}
+
+        if chart_type == "table":
+            st.dataframe(filtered_df.head(100))
         else:
-            st.warning("Grafik oluşturulamadı. Lütfen eksen seçimlerini kontrol edin veya uygun sütunları seçin.")
-
-    st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
-    st.header("LLM Analiz Raporu")
-    api_key_available = bool(os.getenv("OPENAI_API_KEY"))
-    if not api_key_available:
-        st.warning("OPENAI_API_KEY tanımlı değil. Lütfen ortam değişkeni ekleyin ya da bu bölümü atlayın.")
-
-    prompt = build_prompt(uploaded_file.name, filtered_df, schema, reason)
-    report_placeholder = st.empty()
-    if st.button("Analizi Çalıştır", disabled=not api_key_available):
-        with st.spinner("LLM analizi hazırlanıyor..."):
-            report = run_llm_analysis(prompt)
-            if report:
-                report_placeholder.markdown(report)
-                st.subheader("Rapor İndir")
-                download_button("Markdown indir", report.encode("utf-8"), "analiz_raporu.md", "text/markdown")
+            fig = prepare_plot(filtered_df, chart_type, final_config, top_n)
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    png_bytes = fig.to_image(format="png")
+                except Exception:
+                    png_bytes = None
+                html_bytes = fig.to_html(full_html=False).encode("utf-8")
+                st.subheader("Grafik İndirme")
+                if png_bytes:
+                    download_button("PNG olarak indir", png_bytes, "grafik.png", "image/png")
+                download_button("HTML olarak indir", html_bytes, "grafik.html", "text/html")
             else:
-                report_placeholder.warning("Rapor üretilemedi.")
-else:
-    st.info("Analize başlamak için lütfen bir dosya yükleyin.")
+                st.warning("Grafik oluşturulamadı. Lütfen eksen seçimlerini kontrol edin veya uygun sütunları seçin.")
+
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+        st.header("LLM Analiz Raporu")
+        api_key_available = bool(os.getenv("OPENAI_API_KEY"))
+        if not api_key_available:
+            st.warning("OPENAI_API_KEY tanımlı değil. Lütfen ortam değişkeni ekleyin ya da bu bölümü atlayın.")
+
+        prompt = build_prompt(uploaded_file.name, filtered_df, schema, reason)
+        report_placeholder = st.empty()
+        if st.button("Analizi Çalıştır", disabled=not api_key_available):
+            with st.spinner("LLM analizi hazırlanıyor..."):
+                report = run_llm_analysis(prompt)
+                if report:
+                    report_placeholder.markdown(report)
+                    st.subheader("Rapor İndir")
+                    download_button("Markdown indir", report.encode("utf-8"), "analiz_raporu.md", "text/markdown")
+                else:
+                    report_placeholder.warning("Rapor üretilemedi.")
+    else:
+        st.info("Analize başlamak için lütfen bir dosya yükleyin.")
+
+
+def _is_streamlit_context_active() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        return get_script_run_ctx() is not None
+    except Exception:
+        return False
+
+
+if _is_streamlit_context_active():
+    main()
+elif __name__ == "__main__":
+    try:
+        from streamlit.web import bootstrap
+
+        script_path = Path(__file__).resolve()
+        command_line = f"{script_path} {' '.join(sys.argv[1:])}".strip()
+        bootstrap.run(str(script_path), command_line, sys.argv[1:])
+    except Exception as exc:
+        message = (
+            "Streamlit uygulaması doğrudan Python ile başlatılamadı. "
+            "Lütfen `streamlit run app.py` komutunu kullanın.\n"
+            f"Ayrıntılar: {exc}"
+        )
+        sys.stderr.write(message + "\n")
