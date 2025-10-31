@@ -1,4 +1,4 @@
-# pip install streamlit pandas numpy plotly openpyxl pyarrow scipy requests
+# pip install streamlit pandas numpy plotly openpyxl pyarrow scipy requests python-dotenv
 # streamlit run app.py
 # export OPENAI_API_KEY=...
 import io
@@ -16,6 +16,14 @@ import requests
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+script_env_path = Path(__file__).resolve().parent / ".env"
+if script_env_path.exists():
+    load_dotenv(dotenv_path=script_env_path, override=False)
 
 
 CUSTOM_CSS = """
