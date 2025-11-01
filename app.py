@@ -4,7 +4,12 @@
 import io
 from typing import Dict, Optional
 
-import matplotlib.pyplot as plt
+import altair as alt
+
+try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    plt = None
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -149,15 +154,27 @@ def plot_weighted_by_customer(df: pd.DataFrame, customer_col: str, weighted_col:
     if grouped.empty:
         st.info("Grafik için yeterli veri bulunamadı (Müşteri/Ağırlıklı Tutar).")
         return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(grouped[customer_col], grouped[weighted_col], color="#1f77b4")
-    ax.set_title("Müşteriye Göre Toplam Ağırlıklı Tutar (Top 10)")
-    ax.set_xlabel("Müşteri")
-    ax.set_ylabel("Toplam Ağırlıklı Tutar (€)")
-    ax.tick_params(axis="x", rotation=45, labelsize=9)
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    if plt is not None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.bar(grouped[customer_col], grouped[weighted_col], color="#1f77b4")
+        ax.set_title("Müşteriye Göre Toplam Ağırlıklı Tutar (Top 10)")
+        ax.set_xlabel("Müşteri")
+        ax.set_ylabel("Toplam Ağırlıklı Tutar (€)")
+        ax.tick_params(axis="x", rotation=45, labelsize=9)
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        chart = (
+            alt.Chart(grouped)
+            .mark_bar(color="#1f77b4")
+            .encode(
+                x=alt.X(f"{customer_col}:N", sort=list(grouped[customer_col]), title="Müşteri"),
+                y=alt.Y(f"{weighted_col}:Q", title="Toplam Ağırlıklı Tutar (€)"),
+                tooltip=[customer_col, weighted_col],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
 
 
 def plot_weighted_by_engineer(df: pd.DataFrame, engineer_col: str, weighted_col: str):
@@ -178,15 +195,27 @@ def plot_weighted_by_engineer(df: pd.DataFrame, engineer_col: str, weighted_col:
     if grouped.empty:
         st.info("Grafik için yeterli veri bulunamadı (Satış Mühendisi/Ağırlıklı Tutar).")
         return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(grouped[engineer_col], grouped[weighted_col], color="#ff7f0e")
-    ax.set_title("Satış Mühendisine Göre Toplam Ağırlıklı Tutar")
-    ax.set_xlabel("Satış Mühendisi")
-    ax.set_ylabel("Toplam Ağırlıklı Tutar (€)")
-    ax.tick_params(axis="x", rotation=45, labelsize=9)
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    if plt is not None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.bar(grouped[engineer_col], grouped[weighted_col], color="#ff7f0e")
+        ax.set_title("Satış Mühendisine Göre Toplam Ağırlıklı Tutar")
+        ax.set_xlabel("Satış Mühendisi")
+        ax.set_ylabel("Toplam Ağırlıklı Tutar (€)")
+        ax.tick_params(axis="x", rotation=45, labelsize=9)
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        chart = (
+            alt.Chart(grouped)
+            .mark_bar(color="#ff7f0e")
+            .encode(
+                x=alt.X(f"{engineer_col}:N", sort=list(grouped[engineer_col]), title="Satış Mühendisi"),
+                y=alt.Y(f"{weighted_col}:Q", title="Toplam Ağırlıklı Tutar (€)"),
+                tooltip=[engineer_col, weighted_col],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
 
 
 def plot_estimated_amount_hist(df: pd.DataFrame, amount_col: str):
@@ -194,14 +223,27 @@ def plot_estimated_amount_hist(df: pd.DataFrame, amount_col: str):
     if data.empty:
         st.info("Histogram için yeterli Tahmini Tutar verisi bulunamadı.")
         return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.hist(data, bins=15, color="#2ca02c", edgecolor="white")
-    ax.set_title("Tahmini Tutar Dağılımı")
-    ax.set_xlabel("Tahmini Tutar (€)")
-    ax.set_ylabel("Frekans")
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    if plt is not None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.hist(data, bins=15, color="#2ca02c", edgecolor="white")
+        ax.set_title("Tahmini Tutar Dağılımı")
+        ax.set_xlabel("Tahmini Tutar (€)")
+        ax.set_ylabel("Frekans")
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        chart = (
+            alt.Chart(pd.DataFrame({amount_col: data}))
+            .mark_bar(color="#2ca02c")
+            .encode(
+                x=alt.X(f"{amount_col}:Q", bin=alt.Bin(maxbins=15), title="Tahmini Tutar (€)"),
+                y=alt.Y("count():Q", title="Frekans"),
+                tooltip=["count():Q"],
+            )
+        )
+        chart = chart.properties(title="Tahmini Tutar Dağılımı")
+        st.altair_chart(chart, use_container_width=True)
 
 
 def plot_probability_vs_estimate(df: pd.DataFrame, prob_col: str, amount_col: str):
@@ -209,14 +251,27 @@ def plot_probability_vs_estimate(df: pd.DataFrame, prob_col: str, amount_col: st
     if filtered.empty:
         st.info("Saçılım grafiği için yeterli veri bulunamadı (Olasılık/Tahmini Tutar).")
         return
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.scatter(filtered[prob_col], filtered[amount_col], alpha=0.7, color="#d62728")
-    ax.set_title("Olasılık (%) vs Tahmini Tutar (€)")
-    ax.set_xlabel("Olasılık (%)")
-    ax.set_ylabel("Tahmini Tutar (€)")
-    fig.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
+    if plt is not None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.scatter(filtered[prob_col], filtered[amount_col], alpha=0.7, color="#d62728")
+        ax.set_title("Olasılık (%) vs Tahmini Tutar (€)")
+        ax.set_xlabel("Olasılık (%)")
+        ax.set_ylabel("Tahmini Tutar (€)")
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        chart = (
+            alt.Chart(filtered)
+            .mark_circle(size=70, opacity=0.7, color="#d62728")
+            .encode(
+                x=alt.X(f"{prob_col}:Q", title="Olasılık (%)"),
+                y=alt.Y(f"{amount_col}:Q", title="Tahmini Tutar (€)"),
+                tooltip=[prob_col, amount_col],
+            )
+        )
+        chart = chart.properties(title="Olasılık (%) vs Tahmini Tutar (€)")
+        st.altair_chart(chart, use_container_width=True)
 
 
 def determine_file_type(uploaded_file) -> Optional[str]:
